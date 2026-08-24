@@ -1,41 +1,30 @@
-import pandas as pd
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from monitor import get_drift_analysis
+import uvicorn
 
-def get_drift_analysis():
-    # Load the data files you created
-    try:
-        reference = pd.read_csv('reference.csv')
-        current = pd.read_csv('production.csv')
-    except:
-        return {"error": "CSV files not found. Run setup_data.py first."}
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/api/monitor")
+async def monitor_system():
+    data = get_drift_analysis()
+    if "error" in data:
+        return {"success": False, "message": data["error"]}
     
-    results = {}
-    drift_count = 0
-    
-    # Check each column for drift
-    for col in reference.columns:
-        ref_mean = reference[col].mean()
-        cur_mean = current[col].mean()
-        
-        # Calculate how much the data changed (Percentage)
-        diff = abs(ref_mean - cur_mean) / (ref_mean if ref_mean != 0 else 1)
-        
-        # If change is > 20%, we call it "Drift"
-        is_drifted = diff > 0.20
-        if is_drifted:
-            drift_count += 1
-        
-        results[col] = {
-            "drift_detected": bool(is_drifted),
-            "drift_score": float(diff),
-            "stat_test_name": "Mean Shift Analysis"
-        }
-        
+    report = data['metrics'][0]['result']
     return {
-        "metrics": [{
-            "result": {
-                "dataset_drift": bool(drift_count > 0),
-                "share_of_drifted_columns": float(drift_count / len(reference.columns)),
-                "drift_by_columns": results
-            }
-        }]
+        "success": True,
+        "drift_detected": report['dataset_drift'],
+        "drift_score": report['share_of_drifted_columns'],
+        "column_details": report['drift_by_columns']
     }
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
